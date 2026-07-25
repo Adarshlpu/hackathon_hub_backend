@@ -28,6 +28,5 @@ const CertificateSchema = new Schema<ICertificate>(
 );
 
 CertificateSchema.index({ userId: 1, hackathonId: 1 });
-CertificateSchema.index({ verificationCode: 1 });
 
 export const Certificate = mongoose.model<ICertificate>("Certificate", CertificateSchema);
