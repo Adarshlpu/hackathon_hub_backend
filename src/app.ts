@@ -102,6 +102,25 @@ const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
 };
 app.use(errorHandler);
 
+// Root route — API info
+app.get("/", (_req, res) => {
+  res.json({
+    name: "HackHub API",
+    version: "1.0.0",
+    baseUrl: "/api",
+    endpoints: {
+      health: "/api/healthz",
+      auth: "/api/auth/*",
+      users: "/api/users/*",
+      hackathons: "/api/hackathons/*",
+      teams: "/api/teams/*",
+      projects: "/api/projects/*",
+      dashboard: "/api/dashboard/*",
+    },
+    docs: "https://github.com/your-org/hackhub", // update with real docs URL
+  });
+});
+
 // 404 handler
 app.use((_req, res) => {
   res.status(404).json({ error: "Route not found" });
