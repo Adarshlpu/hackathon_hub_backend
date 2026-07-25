@@ -20,7 +20,7 @@ const httpServer = http.createServer(app);
 const io = new SocketIO(httpServer, {
   cors: {
     origin(origin, callback) {
-      if (!origin || clientUrls.includes(origin)) return callback(null, true);
+      if (clientUrls.includes(origin ?? "")) return callback(null, true);
       return callback(new Error("Origin is not allowed by Socket.IO CORS"));
     },
     credentials: true,

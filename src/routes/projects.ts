@@ -56,7 +56,20 @@ router.post("/projects", authenticate, async (req: AuthRequest, res): Promise<vo
     res.status(409).json({ error: "This team has already submitted a project for this hackathon" });
     return;
   }
-  const project = await Project.create({ ...req.body, title: title.trim(), description, techStack, status: "submitted" });
+  const project = await Project.create({
+    title: title.trim(),
+    description,
+    hackathonId,
+    teamId,
+    githubUrl: req.body.githubUrl,
+    demoUrl: req.body.demoUrl,
+    videoUrl: req.body.videoUrl,
+    presentationUrl: req.body.presentationUrl,
+    documentationUrl: req.body.documentationUrl,
+    images: req.body.images,
+    techStack,
+    status: "submitted",
+  });
   res.status(201).json(project);
 });
 
@@ -79,12 +92,27 @@ router.get("/projects/:id", authenticate, async (req: AuthRequest, res): Promise
   res.json({ ...project.toObject(), scores, averageScore: avg });
 });
 
+const ALLOWED_PROJECT_UPDATES = [
+  "title", "description", "githubUrl", "demoUrl", "videoUrl",
+  "presentationUrl", "documentationUrl", "images", "techStack", "status",
+] as const;
+
 // PATCH /projects/:id
 router.patch("/projects/:id", authenticate, async (req: AuthRequest, res): Promise<void> => {
   const ownedTeamIds = await Team.find({ "members.userId": req.user!._id }).distinct("_id");
+  const updates: Record<string, unknown> = {};
+  for (const key of ALLOWED_PROJECT_UPDATES) {
+    if (key in req.body) {
+      updates[key] = req.body[key];
+    }
+  }
+  if (Object.keys(updates).length === 0) {
+    res.status(400).json({ error: "No valid fields to update" });
+    return;
+  }
   const project = await Project.findOneAndUpdate(
     req.user!.role === "student" ? { _id: req.params.id, teamId: { $in: ownedTeamIds } } : { _id: req.params.id },
-    { $set: req.body }, { new: true },
+    { $set: updates }, { new: true },
   );
   if (!project) {
     res.status(404).json({ error: "Project not found" });

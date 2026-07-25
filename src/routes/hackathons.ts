@@ -1,8 +1,10 @@
 import { Router, type IRouter } from "express";
+import mongoose from "mongoose";
 import { Hackathon } from "../models/Hackathon.js";
 import { Registration } from "../models/Registration.js";
 import { Team } from "../models/Team.js";
 import { Score } from "../models/Score.js";
+import { Project } from "../models/Project.js";
 import { Announcement } from "../models/Announcement.js";
 import { Notification } from "../models/Notification.js";
 import { authenticate, AuthRequest } from "../middlewares/auth.js";
@@ -61,12 +63,32 @@ router.post(
       res.status(400).json({ error: "Provide a valid team-size range" });
       return;
     }
-    const hackathon = await Hackathon.create({
-      ...req.body,
+    const allowedFields: Record<string, unknown> = {
       title: title.trim(),
+      description: req.body.description,
+      bannerUrl: req.body.bannerUrl,
+      logoUrl: req.body.logoUrl,
+      startDate: req.body.startDate,
+      endDate: req.body.endDate,
+      registrationDeadline: req.body.registrationDeadline,
+      maxTeamSize: req.body.maxTeamSize,
+      minTeamSize: req.body.minTeamSize,
+      maxParticipants: req.body.maxParticipants,
+      themes: req.body.themes,
+      prizes: req.body.prizes,
+      rules: req.body.rules,
+      location: req.body.location,
+      mode: req.body.mode,
+      faqs: req.body.faqs,
+      schedule: req.body.schedule,
       status: "upcoming",
       organizerId: req.user!._id,
-    });
+    };
+    // Strip undefined fields
+    for (const key of Object.keys(allowedFields)) {
+      if (allowedFields[key] === undefined) delete allowedFields[key];
+    }
+    const hackathon = await Hackathon.create(allowedFields);
     await delCacheByPrefix("hackathons:");
     res.status(201).json(hackathon);
   },
@@ -82,6 +104,15 @@ router.get("/hackathons/:id", async (req, res): Promise<void> => {
   res.json(hackathon);
 });
 
+// Allowed fields for hackathon updates (prevents NoSQL injection & privilege escalation)
+const ALLOWED_HACKATHON_UPDATES = [
+  "title", "description", "bannerUrl", "logoUrl", "status",
+  "startDate", "endDate", "registrationDeadline",
+  "maxTeamSize", "minTeamSize", "maxParticipants",
+  "themes", "prizes", "rules", "location", "mode", "faqs", "schedule",
+] as const;
+type AllowedHackathonUpdate = (typeof ALLOWED_HACKATHON_UPDATES)[number];
+
 // PATCH /hackathons/:id
 router.patch(
   "/hackathons/:id",
@@ -89,9 +120,19 @@ router.patch(
   authorize("college_admin", "super_admin"),
   async (req: AuthRequest, res): Promise<void> => {
     const ownershipFilter = req.user!.role === "super_admin" ? { _id: req.params.id } : { _id: req.params.id, organizerId: req.user!._id };
+    const updates: Record<string, unknown> = {};
+    for (const key of ALLOWED_HACKATHON_UPDATES) {
+      if (key in req.body) {
+        updates[key] = req.body[key];
+      }
+    }
+    if (Object.keys(updates).length === 0) {
+      res.status(400).json({ error: "No valid fields to update" });
+      return;
+    }
     const hackathon = await Hackathon.findOneAndUpdate(
       ownershipFilter,
-      { $set: req.body },
+      { $set: updates },
       { new: true },
     );
     if (!hackathon) {
@@ -251,7 +292,7 @@ router.get("/hackathons/:id/leaderboard", async (req, res): Promise<void> => {
   const cached = await getCache<unknown[]>(cacheKey);
   if (cached) { res.json(cached); return; }
   const scores = await Score.aggregate([
-    { $match: { hackathonId: new (await import("mongoose")).default.Types.ObjectId(req.params.id) } },
+    { $match: { hackathonId: new mongoose.Types.ObjectId(req.params.id) } },
     { $group: { _id: "$projectId", totalScore: { $avg: "$total" } } },
     { $sort: { totalScore: -1 } },
     { $limit: 20 },
@@ -259,7 +300,6 @@ router.get("/hackathons/:id/leaderboard", async (req, res): Promise<void> => {
 
   const leaderboard = await Promise.all(
     scores.map(async (s, i) => {
-      const { Project } = await import("../models/Project.js");
       const project = await Project.findById(s._id).populate("teamId", "name");
       return {
         rank: i + 1,

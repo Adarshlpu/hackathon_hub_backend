@@ -11,6 +11,7 @@ import { User } from "../models/User.js";
 import { Payment } from "../models/Payment.js";
 import { authenticate, AuthRequest } from "../middlewares/auth.js";
 import { authorize } from "../middlewares/authorize.js";
+import { getCache, setCache, delCacheByPrefix } from "../lib/redis.js";
 
 const router: IRouter = Router();
 
@@ -21,6 +22,9 @@ router.get(
   authorize("student", "super_admin"),
   async (req: AuthRequest, res): Promise<void> => {
     const userId = req.user!._id;
+    const cacheKey = `dashboard:student:${userId}`;
+    const cached = await getCache<Record<string, unknown>>(cacheKey);
+    if (cached) { res.json(cached); return; }
 
     const [registrations, teams, submissions, certificates, notifications, upcoming] =
       await Promise.all([
@@ -36,7 +40,7 @@ router.get(
 
     const recentActivity = await Notification.find({ userId }).sort({ createdAt: -1 }).limit(5);
 
-    res.json({
+    const result = {
       registeredHackathons: registrations,
       myTeams: teams,
       submissions,
@@ -49,7 +53,10 @@ router.get(
         link: n.link,
         createdAt: n.createdAt,
       })),
-    });
+    };
+
+    await setCache(cacheKey, result, 30);
+    res.json(result);
   },
 );
 

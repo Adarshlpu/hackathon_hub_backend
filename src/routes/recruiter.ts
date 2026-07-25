@@ -20,9 +20,11 @@ router.get(
       const skills = String(req.query.skills).split(",").map((s) => s.trim());
       filter["profile.skills"] = { $in: skills };
     }
-    if (req.query.search) {
-      const s = String(req.query.search);
-      filter.$or = [{ name: { $regex: s, $options: "i" } }, { email: { $regex: s, $options: "i" } }];
+    if (req.query.search && typeof req.query.search === "string") {
+      const s = String(req.query.search).replace(/[.*+?^${}()|[\]\\]/g, '\\$&').trim().slice(0, 100);
+      if (s.length > 0) {
+        filter.$or = [{ name: { $regex: s, $options: "i" } }, { email: { $regex: s, $options: "i" } }];
+      }
     }
 
     const [students, total] = await Promise.all([
