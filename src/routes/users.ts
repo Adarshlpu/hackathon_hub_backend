@@ -5,6 +5,10 @@ import { authorize } from "../middlewares/authorize.js";
 
 const router: IRouter = Router();
 
+function escapeRegex(str: string): string {
+  return str.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
 // GET /users — admin only
 router.get("/users", authenticate, authorize("super_admin"), async (req, res): Promise<void> => {
   const page = Math.max(1, Number(req.query.page) || 1);
@@ -13,9 +17,11 @@ router.get("/users", authenticate, authorize("super_admin"), async (req, res): P
 
   const filter: Record<string, unknown> = {};
   if (req.query.role) filter.role = req.query.role;
-  if (req.query.search) {
-    const s = String(req.query.search);
-    filter.$or = [{ name: { $regex: s, $options: "i" } }, { email: { $regex: s, $options: "i" } }];
+  if (req.query.search && typeof req.query.search === "string") {
+    const s = escapeRegex(req.query.search.trim()).slice(0, 100);
+    if (s.length > 0) {
+      filter.$or = [{ name: { $regex: s, $options: "i" } }, { email: { $regex: s, $options: "i" } }];
+    }
   }
 
   const [users, total] = await Promise.all([

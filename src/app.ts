@@ -37,7 +37,7 @@ const clientUrls = (process.env.CLIENT_URL || "http://localhost:5173,http://loca
 app.use(
   cors({
     origin(origin, callback) {
-      if (!origin || clientUrls.includes(origin)) return callback(null, true);
+      if (clientUrls.includes(origin ?? "")) return callback(null, true);
       return callback(new Error("Origin is not allowed by CORS"));
     },
     credentials: true,
