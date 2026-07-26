@@ -266,26 +266,6 @@ router.post(
   },
 );
 
-// POST /hackathons/:id/mentors
-router.post(
-  "/hackathons/:id/mentors",
-  authenticate,
-  authorize("college_admin", "super_admin"),
-  async (req: AuthRequest, res): Promise<void> => {
-    const organizerFilter = req.user!.role === "super_admin" ? { _id: req.params.id } : { _id: req.params.id, organizerId: req.user!._id };
-    const hackathon = await Hackathon.findOneAndUpdate(
-      organizerFilter,
-      { $addToSet: { mentors: req.body.userId } },
-      { new: true },
-    );
-    if (!hackathon) {
-      res.status(404).json({ error: "Hackathon not found" });
-      return;
-    }
-    res.json(hackathon);
-  },
-);
-
 // GET /hackathons/:id/leaderboard
 router.get("/hackathons/:id/leaderboard", async (req, res): Promise<void> => {
   const cacheKey = `leaderboard:${req.params.id}`;
