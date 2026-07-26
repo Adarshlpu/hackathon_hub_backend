@@ -2,12 +2,23 @@
 
 /**
  * Allowed client URLs for CORS and Socket.IO
- * Defaults to local Vite and Next.js ports
+ * Normalizes entries to handle missing protocols (https://), trailing slashes, and wildcards.
  */
-export const clientUrls = (process.env.CLIENT_URL || "http://localhost:5173,http://localhost:3000")
+const rawClientUrls = process.env.CLIENT_URL || "http://localhost:5173,http://localhost:3000";
+
+export const clientUrls = rawClientUrls
   .split(",")
-  .map((url) => url.trim().replace(/\/+$/, ""))
-  .filter(Boolean);
+  .map((url) => url.trim())
+  .filter(Boolean)
+  .flatMap((url) => {
+    const cleaned = url.replace(/\/+$/, "");
+    if (cleaned === "*") return ["*"];
+    if (cleaned.startsWith("http://") || cleaned.startsWith("https://")) {
+      return [cleaned];
+    }
+    // If protocol is missing in environment variable, add both https:// and http://
+    return [`https://${cleaned}`, `http://${cleaned}`];
+  });
 
 /**
  * Server configuration
