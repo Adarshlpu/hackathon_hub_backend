@@ -34,11 +34,28 @@ app.use(
   cors({
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      const normalizedOrigin = origin.replace(/\/+$/, "");
+      const normalizedOrigin = origin.trim().replace(/\/+$/, "");
       if (clientUrls.includes("*") || clientUrls.includes(normalizedOrigin)) {
         return callback(null, true);
       }
-      return callback(null, false);
+      try {
+        const originHost = new URL(normalizedOrigin).hostname;
+        const isMatch = clientUrls.some((allowed) => {
+          if (allowed === "*") return true;
+          try {
+            const allowedHost = allowed.startsWith("http") ? new URL(allowed).hostname : allowed;
+            return allowedHost === originHost;
+          } catch {
+            return false;
+          }
+        });
+        if (isMatch) return callback(null, true);
+      } catch {
+        // ignore URL parse errors
+      }
+
+      logger.warn({ origin, allowed: clientUrls }, "Request blocked by CORS");
+      return callback(new Error(`Origin '${origin}' is not allowed by CORS.`));
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
