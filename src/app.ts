@@ -1,3 +1,4 @@
+
 import express, { type ErrorRequestHandler, type Express } from "express";
 import cors from "cors";
 import helmet from "helmet";
@@ -8,39 +9,36 @@ import cookieParser from "cookie-parser";
 import router from "./routes/index.js";
 import { logger } from "./lib/logger.js";
 import { redis } from "./lib/redis.js";
+import { clientUrls } from "./lib/config.js";
 
 const app: Express = express();
 app.set("trust proxy", 1);
 
-function createRedisRateLimitStore(prefix: string) {
-  const client = redis;
-  if (!client) return undefined;
+// --- Helper: Redis Rate Limiter Factory ---
+function createRedisStore(prefix: string) {
+  const r = redis;
+  if (!r) {
+    logger.warn("Redis unavailable, falling back to memory rate limiter");
+    return undefined;
+  }
   return new RedisStore({
     prefix,
-    sendCommand: (...args: string[]) => (client.call as (...command: string[]) => Promise<number>)(...args),
+    sendCommand: (...args: string[]) => (r.call as (...args: string[]) => Promise<any>)(...args),
   });
 }
 
-// Security
-app.use(
-  helmet({
-    crossOriginEmbedderPolicy: false,
-    contentSecurityPolicy: false,
-  }),
-);
+// --- Security & CORS ---
+app.use(helmet({ crossOriginEmbedderPolicy: false, contentSecurityPolicy: false }));
 
-// CORS
-const clientUrls = (process.env.CLIENT_URL || "http://localhost:5173,http://localhost:3000")
-  .split(",")
-  .map((url) => url.trim())
-  .filter(Boolean);
 app.use(
   cors({
     origin(origin, callback) {
-      // Allow requests with no origin (health checks, curl, server-to-server)
       if (!origin) return callback(null, true);
-      if (clientUrls.includes(origin)) return callback(null, true);
-      return callback(new Error("Origin is not allowed by CORS"));
+      const normalizedOrigin = origin.replace(/\/+$/, "");
+      if (clientUrls.includes("*") || clientUrls.includes(normalizedOrigin)) {
+        return callback(null, true);
+      }
+      return callback(null, false);
     },
     credentials: true,
     methods: ["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],
@@ -48,82 +46,79 @@ app.use(
   }),
 );
 
-// Rate limiting
-const apiRateLimitStore = createRedisRateLimitStore("hackhub:rate-limit:");
-const limiter = rateLimit({
-  windowMs: 15 * 60 * 1000, // 15 minutes
+// --- Rate Limiting ---
+app.use(rateLimit({
+  windowMs: 15 * 60 * 1000,
   max: 200,
   standardHeaders: true,
   legacyHeaders: false,
-  ...(apiRateLimitStore ? { store: apiRateLimitStore } : {}),
-});
-app.use(limiter);
+  store: createRedisStore("hackhub:rl:"),
+}));
 
-const authRateLimitStore = createRedisRateLimitStore("hackhub:auth-rate-limit:");
-const authLimiter = rateLimit({
+app.use("/api/auth", rateLimit({
   windowMs: 15 * 60 * 1000,
-  max: 20,
+  max: 20, // Stricter limit for auth routes
   standardHeaders: true,
   legacyHeaders: false,
-  ...(authRateLimitStore ? { store: authRateLimitStore } : {}),
-});
-app.use("/api/auth", authLimiter);
+  store: createRedisStore("hackhub:rl:auth:"),
+}));
 
-// Logging
-app.use(
-  pinoHttp({
-    logger,
-    serializers: {
-      req(req) {
-        return { id: req.id, method: req.method, url: req.url?.split("?")[0] };
-      },
-      res(res) {
-        return { statusCode: res.statusCode };
-      },
-    },
-  }),
-);
+// --- Middleware ---
+app.use(pinoHttp({
+  logger,
+  serializers: {
+    req: (req) => ({ id: req.id, method: req.method, url: req.url?.split("?")[0] }),
+    res: (res) => ({ statusCode: res.statusCode }),
+  },
+}));
 
-// Body parsing
 app.use(express.json({ limit: "10mb" }));
 app.use(express.urlencoded({ extended: true }));
 app.use(cookieParser());
 
-// Routes
-app.use("/api", router);
-
-// Keep API failures machine-readable; Express otherwise sends an HTML error page.
-const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
-  logger.error({ err }, "Unhandled API error");
-  const isValidationError = err.name === "ValidationError" || err.name === "CastError";
-  res.status(isValidationError ? 400 : 500).json({
-    error: isValidationError ? "Invalid request data" : "Internal server error",
-  });
-};
-app.use(errorHandler);
-
-// Root route — API info
+// --- Routes ---
 app.get("/", (_req, res) => {
   res.json({
     name: "HackHub API",
     version: "1.0.0",
     baseUrl: "/api",
-    endpoints: {
-      health: "/api/healthz",
-      auth: "/api/auth/*",
-      users: "/api/users/*",
-      hackathons: "/api/hackathons/*",
-      teams: "/api/teams/*",
-      projects: "/api/projects/*",
-      dashboard: "/api/dashboard/*",
-    },
-    docs: "https://github.com/your-org/hackhub", // update with real docs URL
+    docs: "https://github.com/your-org/hackhub",
   });
 });
 
-// 404 handler
+app.use("/api", router);
+
+// --- 404 Catch-all ---
 app.use((_req, res) => {
   res.status(404).json({ error: "Route not found" });
 });
+
+// --- Global Error Handler ---
+const errorHandler: ErrorRequestHandler = (err, _req, res, _next) => {
+  if (err.status === 403 && err.message?.includes("CORS")) {
+    res.status(403).json({ error: err.message });
+    return;
+  }
+
+  logger.error({ err }, err.message || "Unhandled error");
+
+  let statusCode = 500;
+  let message = "Internal server error";
+
+  if (err.name === "ValidationError" || err.name === "CastError") {
+    statusCode = 400;
+    message = "Invalid request data";
+  } else if (err.name === "MongoServerError" && err.code === 11000) {
+    statusCode = 409;
+    message = "A record with this data already exists";
+  } else if (typeof err.status === "number" && err.status >= 400 && err.status < 600) {
+    statusCode = err.status;
+    message = err.message;
+  }
+
+  res.status(statusCode).json({ error: message });
+};
+
+app.use(errorHandler);
 
 export default app;

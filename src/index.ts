@@ -4,16 +4,7 @@ import { Server as SocketIO } from "socket.io";
 import app from "./app.js";
 import { connectDB } from "./lib/db.js";
 import { logger } from "./lib/logger.js";
-
-const rawPort = process.env["PORT"] || "5000";
-const port = Number(rawPort);
-if (Number.isNaN(port) || port <= 0) throw new Error(`Invalid PORT: "${rawPort}"`);
-
-const clientUrls = (process.env.CLIENT_URL || "http://localhost:5173,http://localhost:3000")
-  .split(",")
-  .map((url) => url.trim())
-  .filter(Boolean);
-
+import { clientUrls, port } from "./lib/config.js";
 
 const httpServer = http.createServer(app);
 
@@ -21,7 +12,10 @@ const io = new SocketIO(httpServer, {
   cors: {
     origin(origin, callback) {
       if (!origin) return callback(null, true);
-      if (clientUrls.includes(origin)) return callback(null, true);
+      const normalizedOrigin = origin.replace(/\/+$/, "");
+      if (clientUrls.includes("*") || clientUrls.includes(normalizedOrigin)) {
+        return callback(null, true);
+      }
       return callback(new Error("Origin is not allowed by Socket.IO CORS"));
     },
     credentials: true,
