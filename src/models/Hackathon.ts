@@ -19,7 +19,6 @@ export interface IHackathon extends Document {
   mode: "online" | "offline" | "hybrid";
   organizerId: mongoose.Types.ObjectId;
   judges: mongoose.Types.ObjectId[];
-  mentors: mongoose.Types.ObjectId[];
   sponsors: Array<{ name: string; logoUrl?: string; tier: string }>;
   registrationCount: number;
   faqs: Array<{ question: string; answer: string }>;
@@ -59,7 +58,6 @@ const HackathonSchema = new Schema<IHackathon>(
     mode: { type: String, enum: ["online", "offline", "hybrid"], default: "online" },
     organizerId: { type: Schema.Types.ObjectId, ref: "User", required: true },
     judges: [{ type: Schema.Types.ObjectId, ref: "User" }],
-    mentors: [{ type: Schema.Types.ObjectId, ref: "User" }],
     sponsors: [{ name: String, logoUrl: String, tier: String }],
     registrationCount: { type: Number, default: 0 },
     faqs: [{ question: String, answer: String }],

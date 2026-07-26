@@ -12,6 +12,7 @@ import { Payment } from "../models/Payment.js";
 import { authenticate, AuthRequest } from "../middlewares/auth.js";
 import { authorize } from "../middlewares/authorize.js";
 import { getCache, setCache, delCacheByPrefix } from "../lib/redis.js";
+import { getCollegeDashboard } from "../services/college-dashboard.service.js";
 
 const router: IRouter = Router();
 
@@ -66,41 +67,14 @@ router.get(
   authenticate,
   authorize("college_admin", "super_admin"),
   async (req: AuthRequest, res): Promise<void> => {
-    const organizerId = req.user!._id;
-    const hackathonIds = await Hackathon.find({ organizerId }).distinct("_id");
-
-    const [total, active, registrations, teams, recentHackathons] = await Promise.all([
-      Hackathon.countDocuments({ organizerId }),
-      Hackathon.countDocuments({ organizerId, status: { $in: ["upcoming", "ongoing"] } }),
-      Registration.countDocuments({ hackathonId: { $in: hackathonIds } }),
-      Team.countDocuments({ hackathonId: { $in: hackathonIds } }),
-      Hackathon.find({ organizerId }).sort({ createdAt: -1 }).limit(5),
-    ]);
-
-    // Build registration trend (last 6 months)
-    const now = new Date();
-    const trend = [];
-    for (let i = 5; i >= 0; i--) {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1);
-      const end = new Date(d.getFullYear(), d.getMonth() + 1, 1);
-      const count = await Registration.countDocuments({
-        hackathonId: { $in: hackathonIds },
-        createdAt: { $gte: d, $lt: end },
-      });
-      trend.push({
-        label: d.toLocaleString("default", { month: "short", year: "2-digit" }),
-        value: count,
-      });
+    try {
+      const organizerId = req.user!._id.toString();
+      const dashboardData = await getCollegeDashboard(organizerId);
+      res.json(dashboardData);
+    } catch (error) {
+      console.error("College dashboard error:", error);
+      res.status(500).json({ error: "Failed to load college dashboard" });
     }
-
-    res.json({
-      totalHackathons: total,
-      activeHackathons: active,
-      totalRegistrations: registrations,
-      totalTeams: teams,
-      recentHackathons,
-      registrationTrend: trend,
-    });
   },
 );
 
@@ -121,27 +95,6 @@ router.get(
       scoredProjects: scoredIds.size,
       pendingProjects: allProjects.filter((p) => !scoredIds.has(p._id.toString())).length,
       recentProjects: allProjects.slice(0, 5),
-    });
-  },
-);
-
-// GET /dashboard/mentor
-router.get(
-  "/dashboard/mentor",
-  authenticate,
-  authorize("mentor", "super_admin"),
-  async (req: AuthRequest, res): Promise<void> => {
-    const hackathons = await Hackathon.find({ mentors: req.user!._id });
-    const hackathonIds = hackathons.map((h) => h._id);
-    const [teams, feedbackCount] = await Promise.all([
-      Team.find({ hackathonId: { $in: hackathonIds } }).populate("members.userId", "name avatar"),
-      Feedback.countDocuments({ mentorId: req.user!._id }),
-    ]);
-
-    res.json({
-      assignedTeams: teams.length,
-      feedbackGiven: feedbackCount,
-      teams,
     });
   },
 );

@@ -4,7 +4,7 @@ import { v4 as uuidv4 } from "uuid";
 export interface ICertificate extends Document {
   userId: mongoose.Types.ObjectId;
   hackathonId: mongoose.Types.ObjectId;
-  type: "participation" | "winner" | "runner_up" | "judge" | "mentor";
+  type: "participation" | "winner" | "runner_up" | "judge";
   verificationCode: string;
   pdfUrl?: string;
   issuedAt: Date;
@@ -17,7 +17,7 @@ const CertificateSchema = new Schema<ICertificate>(
     hackathonId: { type: Schema.Types.ObjectId, ref: "Hackathon", required: true },
     type: {
       type: String,
-      enum: ["participation", "winner", "runner_up", "judge", "mentor"],
+      enum: ["participation", "winner", "runner_up", "judge"],
       required: true,
     },
     verificationCode: { type: String, unique: true, default: () => uuidv4() },
